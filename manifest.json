@@ -1,0 +1,23 @@
+
+{
+  "short_name": "ZayroLingua",
+  "name": "ZayroLingua Academy",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/zayroicon/192/192",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://picsum.photos/seed/zayroicon/512/512",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#AA151B",
+  "background_color": "#fdfcf6",
+  "orientation": "portrait"
+}

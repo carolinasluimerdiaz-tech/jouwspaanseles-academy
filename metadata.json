@@ -1,0 +1,9 @@
+{
+  "name": "ZayroLingua Academy",
+  "description": "ZayroLingua Spanish Academy - Level A1 Mastery with Real-time AI Tutoring, Latin American AI Practice with Pronunciation Feedback, and Interactive Games",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "geolocation"
+  ]
+}
