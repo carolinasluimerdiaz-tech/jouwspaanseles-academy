@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Message, AppSection, LatamCountry, SpeechGenerationResult, ZayroSummary } from '../types'; 
+import { Message, AppSection, LatamCountry, SpeechGenerationResult } from '../types'; 
 import { geminiService, createPcmBlob } from '../services/geminiService'; // Import createPcmBlob
 import { MODULES } from '../constants';
 import { ZayroBotIcon } from './ZayroBotIcon';
 import { 
   Send, ArrowLeft, Loader2, Volume2, Mic, MicOff, 
   AlertCircle, Sparkles, Lock, 
-  UserCircle, Info, Camera, Signal, Languages, RefreshCw, CheckCircle, Trophy
+  UserCircle, Info, Camera, Signal, Languages, RefreshCw
 } from 'lucide-react'; 
 import { LiveServerMessage, Modality } from '@google/genai'; // Import LiveServerMessage and Modality
 
@@ -166,7 +166,20 @@ export const LatamChatInterface: React.FC<LatamChatInterfaceProps> = ({
   useEffect(() => {
     const checkApiKey = async () => {
       let present = !!(process.env.API_KEY || process.env.GEMINI_API_KEY);
-      if (typeof (window as any).aistudio !== 'undefined' && typeof (window as any).aistudio.hasSelectedApiKey === 'function') {
+      
+      if (!present) {
+        try {
+          const res = await fetch('/api/config');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.apiKey) present = true;
+          }
+        } catch (e) {
+          console.error("Failed to check API key from server", e);
+        }
+      }
+
+      if (!present && typeof (window as any).aistudio !== 'undefined' && typeof (window as any).aistudio.hasSelectedApiKey === 'function') {
         present = await (window as any).aistudio.hasSelectedApiKey();
       }
       setApiKeyState(present ? 'PRESENT' : 'MISSING');
@@ -176,8 +189,6 @@ export const LatamChatInterface: React.FC<LatamChatInterfaceProps> = ({
 
   const [connectionState, setConnectionState] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'>('DISCONNECTED');
   const [retryCount, setRetryCount] = useState(0);
-  const [summary, setSummary] = useState<ZayroSummary | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep Alive Ping to prevent session timeout
@@ -241,8 +252,21 @@ export const LatamChatInterface: React.FC<LatamChatInterfaceProps> = ({
       }
 
       // Check if the actual key is available in the environment
-      const envKey = process.env.API_KEY || (window as any).process?.env?.API_KEY || 
+      let envKey = process.env.API_KEY || (window as any).process?.env?.API_KEY || 
                      process.env.GEMINI_API_KEY || (window as any).process?.env?.GEMINI_API_KEY;
+      
+      if (!envKey) {
+        try {
+          const res = await fetch('/api/config');
+          if (res.ok) {
+            const data = await res.json();
+            envKey = data.apiKey;
+          }
+        } catch (e) {
+          console.error("Failed to check API key from server", e);
+        }
+      }
+
       if (!envKey) {
          console.warn("API Key state is PRESENT but actual key is missing in env. Retrying in 1s...");
          if (retryCount < 5) {
@@ -423,34 +447,6 @@ export const LatamChatInterface: React.FC<LatamChatInterfaceProps> = ({
       await (window as any).aistudio.openSelectKey();
       setApiKeyState('PRESENT'); 
       setRetryCount(prev => prev + 1); // Force reconnection
-    }
-  };
-
-  const handleFinishSession = async () => {
-    if (messages.length < 2) {
-      onNavigate(AppSection.HOME);
-      return;
-    }
-
-    setIsAnalyzing(true);
-    try {
-      const transcript = messages
-        .map(m => `${m.role === 'user' ? 'Student' : 'Carolina'}: ${m.text}`)
-        .join('\n');
-      
-      const result = await geminiService.analyzeChatSession(selectedModuleId, transcript);
-      setSummary(result);
-      
-      if (liveSessionRef.current) {
-        liveSessionRef.current.close();
-        liveSessionRef.current = null;
-      }
-      setConnectionState('DISCONNECTED');
-    } catch (e) {
-      console.error("Error finishing session:", e);
-      onNavigate(AppSection.HOME);
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -666,169 +662,79 @@ export const LatamChatInterface: React.FC<LatamChatInterfaceProps> = ({
       )}
 
       <div className="bg-white p-4 sm:p-6 md:p-10 rounded-xl sm:rounded-3xl md:rounded-[3rem] shadow-xl border border-gray-100 flex flex-col min-h-[calc(100vh - 12rem)] md:h-[70vh]">
-        {summary ? (
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-4 animate-in zoom-in-95 duration-500">
-            <div className="max-w-2xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-[12px] border-emerald-500">
-              <div className="p-10 text-center bg-emerald-50/50">
-                <div className="inline-flex items-center justify-center w-20 h-20 bg-emerald-500 text-white rounded-3xl mb-6 shadow-xl">
-                  <Trophy size={40} />
-                </div>
-                <h2 className="text-4xl font-brand font-black text-gray-800 uppercase tracking-tight mb-2">Zayrolingua Summary</h2>
-                <p className="text-emerald-600 font-bold uppercase tracking-widest text-xs">¡Excelente trabajo hoy!</p>
-              </div>
-
-              <div className="p-10 space-y-10">
-                {/* Strengths */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-emerald-600">
-                    <Sparkles size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Great Job!</h3>
-                  </div>
-                  <p className="text-gray-700 leading-relaxed bg-emerald-50/30 p-6 rounded-3xl border border-emerald-100/50">
-                    {summary.strengths}
-                  </p>
-                </section>
-
-                {/* Corrections */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-spanish-red">
-                    <RefreshCw size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Say it Better</h3>
-                  </div>
-                  <div className="space-y-4">
-                    {summary.corrections.map((c, i) => (
-                      <div key={i} className="bg-rose-50/30 p-6 rounded-3xl border border-rose-100/50 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-rose-400 uppercase tracking-widest">You said:</span>
-                          <span className="text-gray-800 font-medium italic">"{c.said}"</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-emerald-500 uppercase tracking-widest">Better:</span>
-                          <span className="text-emerald-700 font-bold">"{c.better}"</span>
-                        </div>
-                        <p className="text-sm text-gray-500 leading-snug">{c.why}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Mission */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-indigo-600">
-                    <CheckCircle size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Module Mission</h3>
-                  </div>
-                  <div className="flex items-center justify-between bg-indigo-50/30 p-6 rounded-3xl border border-indigo-100/50">
-                    <p className="text-gray-700 font-medium">{summary.missionFeedback}</p>
-                    <span className={`px-4 py-2 rounded-full font-brand font-black text-xs uppercase tracking-widest ${
-                      summary.missionStatus.includes('✅') ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
-                    }`}>
-                      {summary.missionStatus}
-                    </span>
-                  </div>
-                </section>
-
-                {/* Pro Words */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-amber-600">
-                    <Volume2 size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Your Pro Words</h3>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {summary.proWords.map((word, i) => (
-                      <span key={i} className="bg-amber-100 text-amber-800 px-6 py-3 rounded-2xl font-brand font-black uppercase text-sm shadow-sm border border-amber-200">
-                        {word}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-
-                <button 
-                  onClick={() => onNavigate(AppSection.HOME)}
-                  className="w-full py-6 bg-spanish-red text-white rounded-3xl font-brand font-black uppercase tracking-[0.2em] shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all mt-6"
+        <div className="mb-6 p-6 bg-gray-50 rounded-[2rem] border border-gray-100 flex flex-wrap items-center gap-8 shadow-inner">
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Seleccionar Acento</span>
+            <div className="flex flex-wrap gap-2">
+              {latamCountries.map(c => (
+                <button
+                  key={c.name}
+                  onClick={() => handleCountryChange({ target: { value: c.name } } as any)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border ${selectedCountry === c.name ? 'bg-spanish-red text-white border-spanish-red shadow-lg scale-105' : 'bg-white text-gray-600 border-gray-200 hover:border-spanish-red/30'}`}
                 >
-                  Continuar Aprendiendo
+                  <span>{c.flag}</span>
+                  <span>{c.name}</span>
                 </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="h-10 w-px bg-gray-200 hidden md:block"></div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Configuración</span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-gray-200">
+                <input
+                  type="checkbox"
+                  id="pronunciationFeedbackToggle"
+                  checked={enablePronunciationFeedback}
+                  onChange={(e) => setEnablePronunciationFeedback(e.target.checked)}
+                  className="h-5 w-5 text-spanish-red rounded-lg border-gray-300 focus:ring-spanish-red cursor-pointer"
+                />
+                <label htmlFor="pronunciationFeedbackToggle" className="text-xs font-black uppercase text-gray-600 cursor-pointer select-none">Feedback de Pronunciación</label>
+              </div>
+              
+              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-gray-200">
+                <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Lección:</span>
+                <select value={selectedModuleId} onChange={handleModuleChange} className="bg-transparent text-gray-800 font-bold text-xs cursor-pointer outline-none">
+                  {MODULES.map((module) => (
+                    <option key={module.id} value={module.id} disabled={isFreeUser && module.id !== 1}>{module.title}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="mb-6 p-6 bg-gray-50 rounded-[2rem] border border-gray-100 flex flex-wrap items-center gap-8 shadow-inner">
-              <div className="flex flex-col gap-2">
-                <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Seleccionar Acento</span>
-                <div className="flex flex-wrap gap-2">
-                  {latamCountries.map(c => (
-                    <button
-                      key={c.name}
-                      onClick={() => handleCountryChange({ target: { value: c.name } } as any)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border ${selectedCountry === c.name ? 'bg-spanish-red text-white border-spanish-red shadow-lg scale-105' : 'bg-white text-gray-600 border-gray-200 hover:border-spanish-red/30'}`}
-                    >
-                      <span>{c.flag}</span>
-                      <span>{c.name}</span>
-                    </button>
-                  ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-4 space-y-4">
+          {messages.map((msg, index) => (
+            <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+              {msg.role === 'user' && (
+                <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden border border-gray-200 shadow-sm">
+                  {userProfileImage ? <img src={userProfileImage} alt="User" className="w-full h-full object-cover" /> : <UserCircle size={40} className="text-gray-300" />}
                 </div>
+              )}
+              <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-spanish-red text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none'}`}>
+                {renderMessageText(msg.text)}
               </div>
-
-              <div className="h-10 w-px bg-gray-200 hidden md:block"></div>
-
-              <div className="flex flex-col gap-2">
-                <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Configuración</span>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-gray-200">
-                    <input
-                      type="checkbox"
-                      id="pronunciationFeedbackToggle"
-                      checked={enablePronunciationFeedback}
-                      onChange={(e) => setEnablePronunciationFeedback(e.target.checked)}
-                      className="h-5 w-5 text-spanish-red rounded-lg border-gray-300 focus:ring-spanish-red cursor-pointer"
-                    />
-                    <label htmlFor="pronunciationFeedbackToggle" className="text-xs font-black uppercase text-gray-600 cursor-pointer select-none">Feedback de Pronunciación</label>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-gray-200">
-                    <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Lección:</span>
-                    <select value={selectedModuleId} onChange={handleModuleChange} className="bg-transparent text-gray-800 font-bold text-xs cursor-pointer outline-none">
-                      {MODULES.map((module) => (
-                        <option key={module.id} value={module.id} disabled={isFreeUser && module.id !== 1}>{module.title}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
+              {msg.role === 'model' && <ZayroBotIcon size={40} className="shrink-0" />}
             </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-4 space-y-10">
-              {messages.map((msg, index) => (
-                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
-                  {msg.role === 'user' && (
-                    <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden border border-gray-200 shadow-sm">
-                      {userProfileImage ? <img src={userProfileImage} alt="User" className="w-full h-full object-cover" /> : <UserCircle size={40} className="text-gray-300" />}
-                    </div>
-                  )}
-                  <div className={`p-5 px-6 rounded-3xl ${msg.role === 'user' ? 'bg-spanish-red text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none shadow-sm'}`}>
-                    {renderMessageText(msg.text)}
-                  </div>
-                  {msg.role === 'model' && <ZayroBotIcon size={40} className="shrink-0" />}
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="mt-16 pt-10 border-t border-gray-100 flex items-center gap-6">
-              <button onClick={handleStopSpeaking} disabled={!isSpeaking} className={`p-3 rounded-full ${isSpeaking ? 'bg-spanish-gold text-white animate-pulse' : 'bg-gray-100 text-gray-300'}`}>
-                <Volume2 size={24} />
-              </button>
-              <button onClick={() => speakTextManually("Prueba de audio. Uno, dos, tres.")} className="text-[10px] text-gray-400 font-bold uppercase hover:text-spanish-red">Test</button>
-              <button onClick={toggleMicInput} disabled={connectionState !== 'CONNECTED'} className={`p-3 rounded-full ${audioStreamActive ? 'bg-blue-500 text-white animate-pulse' : connectionState === 'CONNECTED' ? 'bg-gray-100 text-gray-300' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
-                {connectionState === 'CONNECTING' ? <Loader2 size={24} className="animate-spin text-gray-500" /> : audioStreamActive ? <MicOff size={24} /> : <Mic size={24} />}
-              </button>
-              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage(input)} placeholder="Escribe tu mensaje..." className="flex-1 p-4 rounded-2xl bg-gray-50 outline-none" disabled={isSending || audioStreamActive || apiKeyState !== 'PRESENT'} />
-              <button onClick={() => sendMessage(input)} className="p-4 rounded-2xl bg-spanish-red text-white shadow-lg" disabled={!input.trim() || isSending || audioStreamActive || apiKeyState !== 'PRESENT'}><Send size={24} /></button>
-            </div>
-          </>
-        )}
+        <div className="mt-4 flex items-center gap-2">
+          <button onClick={handleStopSpeaking} disabled={!isSpeaking} className={`p-3 rounded-full ${isSpeaking ? 'bg-spanish-gold text-white animate-pulse' : 'bg-gray-100 text-gray-300'}`}>
+            <Volume2 size={24} />
+          </button>
+          <button onClick={() => speakTextManually("Prueba de audio. Uno, dos, tres.")} className="text-[10px] text-gray-400 font-bold uppercase hover:text-spanish-red">Test</button>
+          <button onClick={toggleMicInput} disabled={connectionState !== 'CONNECTED'} className={`p-3 rounded-full ${audioStreamActive ? 'bg-blue-500 text-white animate-pulse' : connectionState === 'CONNECTED' ? 'bg-gray-100 text-gray-300' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
+            {connectionState === 'CONNECTING' ? <Loader2 size={24} className="animate-spin text-gray-500" /> : audioStreamActive ? <MicOff size={24} /> : <Mic size={24} />}
+          </button>
+          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage(input)} placeholder="Escribe tu mensaje..." className="flex-1 p-4 rounded-2xl bg-gray-50 outline-none" disabled={isSending || audioStreamActive || apiKeyState !== 'PRESENT'} />
+          <button onClick={() => sendMessage(input)} className="p-4 rounded-2xl bg-spanish-red text-white shadow-lg" disabled={!input.trim() || isSending || audioStreamActive || apiKeyState !== 'PRESENT'}><Send size={24} /></button>
+        </div>
       </div>
     </div>
   );

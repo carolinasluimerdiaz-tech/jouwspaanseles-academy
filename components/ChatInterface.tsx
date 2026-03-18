@@ -1,25 +1,23 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Message, AppSection, ZayroSummary, LanguageOption } from '../types';
+import { Message, AppSection } from '../types';
 import { geminiService, createPcmBlob } from '../services/geminiService'; 
 import { MODULES } from '../constants';
 import { ZayroBotIcon } from './ZayroBotIcon';
 import { 
   Send, ArrowLeft, Loader2, Volume2, Mic, MicOff, 
-  AlertCircle, UserCircle, RefreshCw, CheckCircle, Sparkles, Trophy
+  AlertCircle, UserCircle, RefreshCw
 } from 'lucide-react'; 
 import { LiveServerMessage } from '@google/genai'; 
 
 interface ChatInterfaceProps {
   isFreeUser?: boolean;
   onNavigate: (section: AppSection) => void;
-  selectedLanguage?: LanguageOption;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isFreeUser = false,
   onNavigate,
-  selectedLanguage,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -30,8 +28,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'>('DISCONNECTED');
   const [retryCount, setRetryCount] = useState(0);
-  const [summary, setSummary] = useState<ZayroSummary | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const keepAliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep Alive Ping to prevent session timeout
@@ -96,12 +92,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, []);
 
   const getInitialBotMessageText = () => {
-    if (selectedLanguage === LanguageOption.JAPANESE_FOR_SPANISH) {
-      return `¡Hola! Soy Carolina AI, tu profesora de japonés. Hoy empezaremos con lo básico: Saludos y presentaciones. こんにちは (Konnichiwa) - ¿Estás listo para aprender?`;
-    }
-    if (selectedLanguage === LanguageOption.SPANISH_FOR_ENGLISH || selectedLanguage === LanguageOption.SPANISH_FOR_DUTCH) {
-      return `Hi! I'm Carolina AI, your Spanish teacher. Here is how to study: Choose a module, watch videos 1, 2, and 3 today. Take notes in your notebook, then come back to me and let's practice together! What words or sentences did you write down?`;
-    }
     return `¡Hola! Soy Carolina AI, tu profesora de español. Hoy practicaremos: Module 1: Introduce Yourself & Greetings. ¿Tienes alguna duda?`;
   };
 
@@ -114,8 +104,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (outputAudioContextRef.current.state === 'suspended') {
             await outputAudioContextRef.current.resume();
         }
-        const langCode = selectedLanguage === LanguageOption.JAPANESE_FOR_SPANISH ? 'ja-JP' : 'es-ES';
-        const speech = await geminiService.generateSpeech(text, langCode);
+        const speech = await geminiService.generateSpeech(text, 'es-ES');
         if (speech.audioData) {
             const buffer = await geminiService.decodePcmAudioData(
                 geminiService.decodeBase64(speech.audioData),
@@ -134,7 +123,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }
     } catch (e: any) {
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = selectedLanguage === LanguageOption.JAPANESE_FOR_SPANISH ? 'ja-JP' : 'es-ES';
+        utterance.lang = 'es-ES';
         utterance.onend = () => setIsSpeaking(false);
         window.speechSynthesis.speak(utterance);
     }
@@ -144,34 +133,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (typeof (window as any).aistudio !== 'undefined' && typeof (window as any).aistudio.openSelectKey === 'function') {
       await (window as any).aistudio.openSelectKey();
       setApiKeyState('PRESENT'); 
-    }
-  };
-
-  const handleFinishSession = async () => {
-    if (messages.length < 2) {
-      onNavigate(AppSection.HOME);
-      return;
-    }
-
-    setIsAnalyzing(true);
-    try {
-      const transcript = messages
-        .map(m => `${m.role === 'user' ? 'Student' : 'Carolina'}: ${m.text}`)
-        .join('\n');
-      
-      const result = await geminiService.analyzeChatSession(1, transcript, selectedLanguage);
-      setSummary(result);
-      
-      if (liveSessionRef.current) {
-        liveSessionRef.current.close();
-        liveSessionRef.current = null;
-      }
-      setConnectionState('DISCONNECTED');
-    } catch (e) {
-      console.error("Error finishing session:", e);
-      onNavigate(AppSection.HOME);
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -277,10 +238,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               setRetryCount(prev => prev + 1);
             }
           }
-        },
-        undefined,
-        false,
-        selectedLanguage
+        }
       );
       liveSessionRef.current = await sessionPromise;
       setConnectionState('CONNECTED');
@@ -307,7 +265,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     const checkKey = async () => {
       let present = !!(process.env.API_KEY || process.env.GEMINI_API_KEY);
-      if (typeof (window as any).aistudio?.hasSelectedApiKey === 'function') {
+      
+      if (!present) {
+        try {
+          const res = await fetch('/api/config');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.apiKey) present = true;
+          }
+        } catch (e) {
+          console.error("Failed to check API key from server", e);
+        }
+      }
+
+      if (!present && typeof (window as any).aistudio?.hasSelectedApiKey === 'function') {
         present = await (window as any).aistudio.hasSelectedApiKey();
       }
       setApiKeyState(present ? 'PRESENT' : 'MISSING');
@@ -443,16 +414,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
                      {connectionState === 'CONNECTED' ? 'Carolina en línea' : connectionState === 'CONNECTING' ? 'Conectando...' : 'Desconectado'}
                    </span>
-                   {connectionState === 'CONNECTED' && (
-                     <button 
-                       onClick={handleFinishSession}
-                       disabled={isAnalyzing}
-                       className="ml-4 flex items-center gap-2 bg-emerald-500 text-white px-4 py-2 rounded-full hover:bg-emerald-600 transition-all font-brand font-black text-[9px] uppercase tracking-widest shadow-lg disabled:opacity-50"
-                     >
-                       {isAnalyzing ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-                       Terminar Sesión
-                     </button>
-                   )}
                    {connectionState === 'DISCONNECTED' && (
                      <button 
                        onClick={() => setRetryCount(prev => prev + 1)} 
@@ -482,137 +443,47 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       <div className="bg-white p-4 sm:p-6 md:p-10 rounded-xl sm:rounded-3xl md:rounded-[3rem] shadow-xl border border-gray-100 flex flex-col min-h-[calc(100vh - 12rem)] md:h-[70vh]">
-        {summary ? (
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-4 animate-in zoom-in-95 duration-500">
-            <div className="max-w-2xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-[12px] border-emerald-500">
-              <div className="p-10 text-center bg-emerald-50/50">
-                <div className="inline-flex items-center justify-center w-20 h-20 bg-emerald-500 text-white rounded-3xl mb-6 shadow-xl">
-                  <Trophy size={40} />
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-4 space-y-4">
+          {messages.map((msg, index) => (
+            <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+              {msg.role === 'user' && (
+                <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden border border-gray-200 shadow-sm">
+                  {userProfileImage ? <img src={userProfileImage} alt="User" className="w-full h-full object-cover" /> : <UserCircle size={40} className="text-gray-300" />}
                 </div>
-                <h2 className="text-4xl font-brand font-black text-gray-800 uppercase tracking-tight mb-2">Zayrolingua Summary</h2>
-                <p className="text-emerald-600 font-bold uppercase tracking-widest text-xs">¡Excelente trabajo hoy!</p>
+              )}
+              <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-spanish-red text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none'}`}>
+                {renderMessageText(msg.text)}
               </div>
-
-              <div className="p-10 space-y-10">
-                {/* Strengths */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-emerald-600">
-                    <Sparkles size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Great Job!</h3>
-                  </div>
-                  <p className="text-gray-700 leading-relaxed bg-emerald-50/30 p-6 rounded-3xl border border-emerald-100/50">
-                    {summary.strengths}
-                  </p>
-                </section>
-
-                {/* Corrections */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-spanish-red">
-                    <RefreshCw size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Say it Better</h3>
-                  </div>
-                  <div className="space-y-4">
-                    {summary.corrections.map((c, i) => (
-                      <div key={i} className="bg-rose-50/30 p-6 rounded-3xl border border-rose-100/50 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-rose-400 uppercase tracking-widest">You said:</span>
-                          <span className="text-gray-800 font-medium italic">"{c.said}"</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-emerald-500 uppercase tracking-widest">Better:</span>
-                          <span className="text-emerald-700 font-bold">"{c.better}"</span>
-                        </div>
-                        <p className="text-sm text-gray-500 leading-snug">{c.why}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Mission */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-indigo-600">
-                    <CheckCircle size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Module Mission</h3>
-                  </div>
-                  <div className="flex items-center justify-between bg-indigo-50/30 p-6 rounded-3xl border border-indigo-100/50">
-                    <p className="text-gray-700 font-medium">{summary.missionFeedback}</p>
-                    <span className={`px-4 py-2 rounded-full font-brand font-black text-xs uppercase tracking-widest ${
-                      summary.missionStatus.includes('✅') ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
-                    }`}>
-                      {summary.missionStatus}
-                    </span>
-                  </div>
-                </section>
-
-                {/* Pro Words */}
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 text-amber-600">
-                    <Volume2 size={24} />
-                    <h3 className="font-brand font-black uppercase tracking-widest text-lg">Your Pro Words</h3>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {summary.proWords.map((word, i) => (
-                      <span key={i} className="bg-amber-100 text-amber-800 px-6 py-3 rounded-2xl font-brand font-black uppercase text-sm shadow-sm border border-amber-200">
-                        {word}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-
-                <button 
-                  onClick={() => onNavigate(AppSection.HOME)}
-                  className="w-full py-6 bg-spanish-red text-white rounded-3xl font-brand font-black uppercase tracking-[0.2em] shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all mt-6"
-                >
-                  Continuar Aprendiendo
-                </button>
-              </div>
+              {msg.role === 'model' && <ZayroBotIcon size={40} className="shrink-0" />}
             </div>
-          </div>
-        ) : (
-          <>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-4 space-y-10">
-              {messages.map((msg, index) => (
-                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
-                  {msg.role === 'user' && (
-                    <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden border border-gray-200 shadow-sm">
-                      {userProfileImage ? <img src={userProfileImage} alt="User" className="w-full h-full object-cover" /> : <UserCircle size={40} className="text-gray-300" />}
-                    </div>
-                  )}
-                  <div className={`p-5 px-6 rounded-3xl ${msg.role === 'user' ? 'bg-spanish-red text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none shadow-sm'}`}>
-                    {renderMessageText(msg.text)}
-                  </div>
-                  {msg.role === 'model' && <ZayroBotIcon size={40} className="shrink-0" />}
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
 
-            <div className="mt-16 pt-10 border-t border-gray-100 flex items-center gap-6">
-              <button onClick={handleStopSpeaking} disabled={!isSpeaking} className={`p-3 rounded-full ${isSpeaking ? 'bg-spanish-gold text-white animate-pulse' : 'bg-gray-100 text-gray-300'}`}>
-                <Volume2 size={24} />
-              </button>
-              <button onClick={toggleMic} className={`p-3 rounded-full ${audioStreamActive ? 'bg-blue-500 text-white animate-pulse' : 'bg-gray-100 text-gray-300'}`}>
-                {audioStreamActive ? <MicOff size={24} /> : <Mic size={24} />}
-              </button>
-              <input 
-                type="text" 
-                value={input} 
-                onChange={(e) => setInput(e.target.value)} 
-                onKeyPress={(e) => e.key === 'Enter' && sendMessage(input)} 
-                placeholder="Escribe tu mensaje..." 
-                className="flex-1 p-4 rounded-2xl bg-gray-50 outline-none" 
-                disabled={isSending || audioStreamActive || apiKeyState !== 'PRESENT'} 
-              />
-              <button 
-                onClick={() => sendMessage(input)} 
-                className="p-4 rounded-2xl bg-spanish-red text-white shadow-lg" 
-                disabled={!input.trim() || isSending || audioStreamActive || apiKeyState !== 'PRESENT'}
-              >
-                {isSending ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
-              </button>
-            </div>
-          </>
-        )}
+        <div className="mt-4 flex items-center gap-2">
+          <button onClick={handleStopSpeaking} disabled={!isSpeaking} className={`p-3 rounded-full ${isSpeaking ? 'bg-spanish-gold text-white animate-pulse' : 'bg-gray-100 text-gray-300'}`}>
+            <Volume2 size={24} />
+          </button>
+          <button onClick={toggleMic} className={`p-3 rounded-full ${audioStreamActive ? 'bg-blue-500 text-white animate-pulse' : 'bg-gray-100 text-gray-300'}`}>
+            {audioStreamActive ? <MicOff size={24} /> : <Mic size={24} />}
+          </button>
+          <input 
+            type="text" 
+            value={input} 
+            onChange={(e) => setInput(e.target.value)} 
+            onKeyPress={(e) => e.key === 'Enter' && sendMessage(input)} 
+            placeholder="Escribe tu mensaje..." 
+            className="flex-1 p-4 rounded-2xl bg-gray-50 outline-none" 
+            disabled={isSending || audioStreamActive || apiKeyState !== 'PRESENT'} 
+          />
+          <button 
+            onClick={() => sendMessage(input)} 
+            className="p-4 rounded-2xl bg-spanish-red text-white shadow-lg" 
+            disabled={!input.trim() || isSending || audioStreamActive || apiKeyState !== 'PRESENT'}
+          >
+            {isSending ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
+          </button>
+        </div>
       </div>
     </div>
   );

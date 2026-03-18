@@ -9,8 +9,28 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+
+function renderApp() {
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
+
+fetch('/api/config')
+  .then(res => res.json())
+  .then(data => {
+    if (data.apiKey) {
+      if (typeof window !== 'undefined') {
+        (window as any).process = (window as any).process || {};
+        (window as any).process.env = (window as any).process.env || {};
+        (window as any).process.env.API_KEY = data.apiKey;
+      }
+    }
+    renderApp();
+  })
+  .catch(err => {
+    console.error('Failed to fetch config:', err);
+    renderApp();
+  });

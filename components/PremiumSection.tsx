@@ -366,7 +366,19 @@ export const PremiumSection: React.FC = () => {
     - REGLA DE ORO: Usa EXCLUSIVAMENTE el alfabeto latino. NUNCA uses otros alfabetos (como hebreo, telugu, árabe, etc.).`;
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' }); // Always instantiate fresh for API key
+      let key = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
+      if (!key) {
+        try {
+          const res = await fetch('/api/config');
+          if (res.ok) {
+            const data = await res.json();
+            key = data.apiKey;
+          }
+        } catch (e) {
+          console.error("Failed to check API key from server", e);
+        }
+      }
+      const ai = new GoogleGenAI({ apiKey: key }); // Always instantiate fresh for API key
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview', // Changed to PRO model for higher precision
         contents: `Translate the following text strictly following your instructions: "${text}"`,

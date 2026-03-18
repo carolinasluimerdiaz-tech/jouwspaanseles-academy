@@ -67,17 +67,23 @@ export const DuolingoSession: React.FC<{ onExit: () => void }> = ({ onExit }) =>
     }
   };
 
-  const handleChatChallenge = async () => {
+  const handleChatChallenge = async (usePaymentKey: boolean | React.MouseEvent = false) => {
+    const isPaymentKey = typeof usePaymentKey === 'boolean' ? usePaymentKey : false;
     if (!chatInput.trim() || isProcessing) return;
     setIsProcessing(true);
     try {
-      const chatSession = await geminiService.startChat("Challenge Checkpoint", ["Review", "Conversation"], 1); 
+      const chatSession = await geminiService.startChat("Challenge Checkpoint", ["Review", "Conversation"], 1, undefined, undefined, isPaymentKey); 
       const response = await chatSession.sendMessage({ message: chatInput });
       const responseText = response.text || "";
       setChatResponse(responseText);
       setScore(s => s + 100);
       setFeedback('correct');
-    } catch (e) {
+    } catch (e: any) {
+      if (!isPaymentKey && (e?.message?.includes("429") || e?.message?.includes("quota") || e?.message?.includes("503"))) {
+        console.warn("Retrying handleChatChallenge with payment API key...");
+        setIsProcessing(false);
+        return handleChatChallenge(true);
+      }
       setFeedback('wrong');
     } finally {
       setIsProcessing(false);

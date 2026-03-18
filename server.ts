@@ -37,13 +37,7 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
-
-  // Logging middleware
-  app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    next();
-  });
+  app.use(express.json());
 
   // Email Transporter
   const transporter = nodemailer.createTransport({
@@ -77,7 +71,7 @@ async function startServer() {
   app.post("/api/auth/register", (req, res) => {
     const userData = req.body;
     const users = getUsers();
-    if (users.find((u: any) => (u.email || '').toLowerCase() === (userData.email || '').toLowerCase())) {
+    if (users.find((u: any) => u.email.toLowerCase() === userData.email.toLowerCase())) {
       return res.status(400).json({ error: "Este correo ya está registrado." });
     }
     users.push(userData);
@@ -90,8 +84,8 @@ async function startServer() {
     const users = getUsers();
     
     // Master Creator check
-    if ((email || '').toLowerCase() === 'jouwspaanseles@gmail.com' && password === 'ZAYRO_MASTER') {
-      let creator = users.find((u: any) => (u.email || '').toLowerCase() === (email || '').toLowerCase());
+    if (email.toLowerCase() === 'jouwspaanseles@gmail.com' && password === 'ZAYRO_MASTER') {
+      let creator = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
       if (!creator) {
         creator = {
           name: 'Zayro Creator',
@@ -111,8 +105,8 @@ async function startServer() {
     }
 
     // Master Carolina check
-    if ((email || '').toLowerCase() === 'carolinasluimerdiaz@gmail.com' && password === 'zayro2025') {
-      let carolina = users.find((u: any) => (u.email || '').toLowerCase() === (email || '').toLowerCase());
+    if (email.toLowerCase() === 'carolinasluimerdiaz@gmail.com' && password === 'zayro2025') {
+      let carolina = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
       if (!carolina) {
         carolina = {
           name: 'Carolina',
@@ -131,7 +125,7 @@ async function startServer() {
       return res.json({ success: true, user: carolina });
     }
 
-    const user = users.find((u: any) => (u.email || '').toLowerCase() === (email || '').toLowerCase() && u.password === password);
+    const user = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
     if (user) {
       res.json({ success: true, user });
     } else {
@@ -144,7 +138,7 @@ async function startServer() {
     if (!email) return res.status(400).json({ error: "Email requerido." });
     
     const users = getUsers();
-    const user = users.find((u: any) => (u.email || '').toLowerCase() === (email as string || '').toLowerCase());
+    const user = users.find((u: any) => u.email.toLowerCase() === (email as string).toLowerCase());
     if (user) {
       // Don't send password back
       const { password, ...safeUser } = user;
@@ -155,37 +149,27 @@ async function startServer() {
   });
 
   app.post("/api/auth/update", (req, res) => {
-    try {
-      const userData = req.body;
-      if (!userData || !userData.email) {
-        console.error("Update failed: Missing user data or email");
-        return res.status(400).json({ error: "Datos de usuario inválidos." });
-      }
-      
-      const users = getUsers();
-      const idx = users.findIndex((u: any) => (u.email || '').toLowerCase() === (userData.email || '').toLowerCase());
-      if (idx !== -1) {
-        // Preserve password if not provided in update
-        const existingUser = users[idx];
-        users[idx] = { ...existingUser, ...userData };
-        if (!userData.password && existingUser.password) {
-          users[idx].password = existingUser.password;
-        }
-        
-        saveUsers(users);
-        res.json({ success: true });
-      } else {
-        res.status(404).json({ error: "Usuario no encontrado." });
-      }
-    } catch (error) {
-      console.error("Error in /api/auth/update:", error);
-      res.status(500).json({ error: "Error interno del servidor." });
+    const userData = req.body;
+    const users = getUsers();
+    const idx = users.findIndex((u: any) => u.email.toLowerCase() === userData.email.toLowerCase());
+    if (idx !== -1) {
+      users[idx] = userData;
+      saveUsers(users);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Usuario no encontrado." });
     }
   });
 
   app.post("/api/check-permission", (req, res) => {
     // Always allowed now to avoid blocking users
     res.json({ allowed: true });
+  });
+
+  app.get("/api/config", (req, res) => {
+    res.json({
+      apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY || ""
+    });
   });
 
   // Vite middleware for development
@@ -196,27 +180,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.get("*", (req, res) => {
-        res.sendFile(path.join(distPath, "index.html"));
-      });
-    } else {
-      console.warn("Production build not found. Serving as development.");
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: "spa",
-      });
-      app.use(vite.middlewares);
-    }
+    app.use(express.static("dist"));
   }
-
-  // Global error handler
-  app.use((err: any, req: any, res: any, next: any) => {
-    console.error("Global error:", err);
-    res.status(500).json({ error: "Algo salió mal en el servidor." });
-  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

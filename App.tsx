@@ -566,7 +566,13 @@ const App: React.FC = () => {
       // To be safe, we can debounce this or check if it's actually different.
       databaseService.updateUser(currentUser);
     }
-  }, [currentUser?.stats.xp, currentUser?.stats.level, currentUser?.completedModules.length, currentUser?.activityLog.length]);
+  }, [
+    currentUser?.stats.xp, 
+    currentUser?.stats.level, 
+    currentUser?.stats.dailyUsageMinutes,
+    currentUser?.completedModules.length, 
+    currentUser?.activityLog.length
+  ]);
 
   const addActivity = useCallback((action: string, xp: number) => {
     if (!currentUser) return;
@@ -618,7 +624,7 @@ const App: React.FC = () => {
            <div className="w-14 h-14 bg-gradient-to-br from-spanish-red to-red-700 rounded-3xl flex items-center justify-center text-white font-black text-2xl shadow-xl group-hover:rotate-12 transition-transform">Z</div>
            <div>
              <h1 className="font-brand font-black text-2xl tracking-tighter uppercase leading-none">ZayroLingua</h1>
-             <p className="text-[10px] font-black text-spanish-gold uppercase tracking-[0.3em]">Latin Method <span className="text-spanish-red/40 ml-2">v1.2.3</span></p>
+             <p className="text-[10px] font-black text-spanish-gold uppercase tracking-[0.3em]">Latin Method <span className="text-spanish-red/40 ml-2">v1.2.5</span></p>
            </div>
         </div>
         <nav className="flex-1 space-y-3">
@@ -732,8 +738,8 @@ const App: React.FC = () => {
           {/* Conditional Rendering for ALL RESTORED SECTIONS */}
           {currentSection === AppSection.PROFILE && <ProfileSection user={currentUser} onNavigate={setCurrentSection} onLogout={handleLogout} />}
           {currentSection === AppSection.MASTERCLASSES && <VideoSection onNavigate={setCurrentSection} selectedLanguage={selectedLanguage || undefined} />}
-          {currentSection === AppSection.CAROLINA_AI && <ChatInterface onNavigate={setCurrentSection} selectedLanguage={selectedLanguage || undefined} />}
-          {currentSection === AppSection.LATAM_CAROLINA_AI && <LatamChatInterface onNavigate={setCurrentSection} />} 
+          {currentSection === AppSection.CAROLINA_AI && <ChatInterface onNavigate={setCurrentSection} selectedLanguage={selectedLanguage || undefined} currentUser={currentUser} />}
+          {currentSection === AppSection.LATAM_CAROLINA_AI && <LatamChatInterface onNavigate={setCurrentSection} currentUser={currentUser} />} 
           {currentSection === AppSection.CHALLENGE_ZONE && <ChallengeZone onNavigate={setCurrentSection} selectedLanguage={selectedLanguage || undefined} />}
           {currentSection === AppSection.STUDY_PLAN && <ChallengeSection onNavigate={setCurrentSection} selectedLanguage={selectedLanguage || undefined} />}
           {currentSection === AppSection.GAMES && <GamesSection onNavigate={setCurrentSection} onExerciseComplete={addActivity} selectedLanguage={selectedLanguage || undefined} />}

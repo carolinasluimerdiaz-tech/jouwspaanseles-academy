@@ -182,18 +182,26 @@ export const ChallengeZone: React.FC<ChallengeZoneProps> = ({ onNavigate, select
     }
   };
 
-  const startMission = async (mission: Mission) => {
-    setMessages([]);
-    setGameState('PLAYING');
-    setIsSending(true);
-    setActiveMission(mission);
+  const startMission = async (mission: Mission, usePaymentKey: boolean = false) => {
+    if (!usePaymentKey) {
+      setMessages([]);
+      setGameState('PLAYING');
+      setIsSending(true);
+      setActiveMission(mission);
+    }
     
     try {
-      const session = await geminiService.startChallengeEngine(mission.id, selectedLanguage);
+      const session = await geminiService.startChallengeEngine(mission.id, selectedLanguage, usePaymentKey);
       setChatSession(session);
-      setMessages([{ role: 'model', text: mission.initialMessage }]);
-      speakMessage(mission.initialMessage);
-    } catch (e) {
+      if (!usePaymentKey) {
+        setMessages([{ role: 'model', text: mission.initialMessage }]);
+        speakMessage(mission.initialMessage);
+      }
+    } catch (e: any) {
+      if (!usePaymentKey && (e?.message?.includes("429") || e?.message?.includes("quota") || e?.message?.includes("503"))) {
+        console.warn("Retrying startMission with payment API key...");
+        return startMission(mission, true);
+      }
       console.error(e);
     } finally {
       setIsSending(false);
@@ -216,17 +224,27 @@ export const ChallengeZone: React.FC<ChallengeZoneProps> = ({ onNavigate, select
     }
   };
 
-  const sendMessage = async () => {
+  const sendMessage = async (usePaymentKey: boolean | React.MouseEvent | React.FormEvent = false) => {
+    const isPaymentKey = typeof usePaymentKey === 'boolean' ? usePaymentKey : false;
     if (!input.trim() || isSending || !chatSession) return;
     
     const userMsg = input;
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
-    setIsSending(true);
-    stopCurrentAudio();
+    if (!isPaymentKey) {
+      setInput('');
+      setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+      setIsSending(true);
+      stopCurrentAudio();
+    }
 
     try {
-      const result = await chatSession.sendMessage({ message: userMsg });
+      // If we are retrying, we need to restart the session with the payment key
+      let currentSession = chatSession;
+      if (isPaymentKey && activeMission) {
+        currentSession = await geminiService.startChallengeEngine(activeMission.id, selectedLanguage, true);
+        setChatSession(currentSession);
+      }
+
+      const result = await currentSession.sendMessage({ message: userMsg });
       const responseText = result.text || "";
       
       if (responseText.includes('[FRACASO]')) setGameState('GAME_OVER');
@@ -235,7 +253,11 @@ export const ChallengeZone: React.FC<ChallengeZoneProps> = ({ onNavigate, select
       const cleanText = responseText.replace('[FRACASO]', '').replace('[EXITO]', '').trim();
       setMessages(prev => [...prev, { role: 'model', text: cleanText }]);
       speakMessage(cleanText);
-    } catch (e) {
+    } catch (e: any) {
+      if (!isPaymentKey && (e?.message?.includes("429") || e?.message?.includes("quota") || e?.message?.includes("503"))) {
+        console.warn("Retrying sendMessage with payment API key...");
+        return sendMessage(true);
+      }
       setMessages(prev => [...prev, { role: 'model', text: "Lo siento, hubo un error de conexión. Inténtalo de nuevo." }]);
     } finally {
       setIsSending(false);
